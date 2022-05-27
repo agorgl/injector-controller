@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "injector-controller.fullname" . }}
+spec:
+  commonName: {{ include "injector-controller.fullname" . }}.svc.cluster.local
+  secretName: {{ include "injector-controller.fullname" . }}-tls
+  dnsNames:
+    - {{ include "injector-controller.fullname" . }}.{{ .Release.Namespace }}.svc
+  issuerRef:
+    name: local-ca-issuer
+    kind: ClusterIssuer
