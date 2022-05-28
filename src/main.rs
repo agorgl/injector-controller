@@ -11,7 +11,7 @@ use std::{convert::Infallible, error::Error};
 use tracing::*;
 use warp::{reply, Filter, Reply};
 
-fn patch_pod(pod: &mut Pod, tls_secret: &str, sidecar_image: Option<&String>) -> Result<()> {
+fn patch_pod(pod: &mut Pod, tls_secret: &str) -> Result<()> {
     let spec = pod
         .spec
         .as_mut()
@@ -51,30 +51,14 @@ fn patch_pod(pod: &mut Pod, tls_secret: &str, sidecar_image: Option<&String>) ->
         mounts.append(&mut cert_mounts);
     }
 
-    // Pick sidecar image
-    let image = spec
-        .containers
-        .first()
-        .context("spec must have at least one container")?
-        .image
-        .as_ref()
-        .context("container image must be specified")?;
-    let sidecar_image = sidecar_image.unwrap_or_else(|| image);
-
     // Add sidecar container
     let sidecar_container = Container {
         name: "inject-certificate".into(),
-        image: Some(sidecar_image.into()),
+        image: Some("alpine".into()),
         command: Some(vec![
             "/bin/sh",
             "-c",
-            r#"
-            (
-              command -v update-ca-certificates \
-              && update-ca-certificates \
-              || (cat /usr/local/share/ca-certificates/{tls_secret}.crt >> /etc/ssl/certs/ca-certificates.crt)
-            ); cp -r /etc/ssl/certs/. /certificates
-            "#
+            "(apk add -U ca-certificates java-cacerts && update-ca-certificates); cp -r /etc/ssl/certs/. /certificates"
         ].into_iter().map(|s| s.to_owned()).collect()),
         volume_mounts: Some(vec![
             VolumeMount {
@@ -140,13 +124,12 @@ fn mutate(
     if types.kind == "Pod" && *oper == Operation::Create {
         // If the resource contains annotation, process it
         if let Some(tls_secret) = obj.annotations().get("injector/certificate") {
-            // Get optional custom image for the sidecar container
-            let sidecar_image = obj.annotations().get("injector/image");
             // Deserialize object as a pod
             let mut pod: Pod = serde_json::from_value(obj.data.clone())
                 .context("could not deserialize pod object")?;
             // Patch the resource
-            patch_pod(&mut pod, &tls_secret, sidecar_image)?;
+            info!("patching: Pod with tls secret {tls_secret}");
+            patch_pod(&mut pod, &tls_secret)?;
             // Make json patch list
             let patches = make_patches(&pod)?;
             // Return admission response with patches
