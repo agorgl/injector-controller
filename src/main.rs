@@ -77,7 +77,7 @@ fn patch_pod(pod: &mut Pod, tls_secret: &str, java_home: Option<&String>) -> Res
                 name: tls_secret.into(),
                 read_only: Some(true),
                 sub_path: Some("tls.crt".into()),
-                mount_path: "/usr/local/share/ca-certificates/{tls_secret}.crt".into(),
+                mount_path: format!("/usr/local/share/ca-certificates/{tls_secret}.crt"),
                 ..Default::default()
             },
             VolumeMount {
