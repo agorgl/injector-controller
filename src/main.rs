@@ -11,7 +11,7 @@ use std::{convert::Infallible, error::Error};
 use tracing::*;
 use warp::{reply, Filter, Reply};
 
-fn patch_pod(pod: &mut Pod, tls_secret: &str) -> Result<()> {
+fn patch_pod(pod: &mut Pod, tls_secret: &str, java_home: Option<&String>) -> Result<()> {
     let spec = pod
         .spec
         .as_mut()
@@ -48,6 +48,18 @@ fn patch_pod(pod: &mut Pod, tls_secret: &str) -> Result<()> {
             mount_path: "/etc/ssl/certs".into(),
             ..Default::default()
         }];
+        if let Some(java_home) = java_home {
+            let java_home = if java_home == "default" { "/opt/java/openjdk" } else { java_home };
+            cert_mounts.push(
+                VolumeMount {
+                    name: "certs".into(),
+                    read_only: Some(false),
+                    sub_path: Some("java/cacerts".into()),
+                    mount_path: format!("{java_home}/lib/security/cacerts"),
+                    ..Default::default()
+                }
+            );
+        }
         mounts.append(&mut cert_mounts);
     }
 
@@ -124,12 +136,14 @@ fn mutate(
     if types.kind == "Pod" && *oper == Operation::Create {
         // If the resource contains annotation, process it
         if let Some(tls_secret) = obj.annotations().get("injector/certificate") {
+            // Get optional java home path
+            let java_path = obj.annotations().get("injector/java-home");
             // Deserialize object as a pod
             let mut pod: Pod = serde_json::from_value(obj.data.clone())
                 .context("could not deserialize pod object")?;
             // Patch the resource
             info!("patching: Pod with tls secret {tls_secret}");
-            patch_pod(&mut pod, &tls_secret)?;
+            patch_pod(&mut pod, &tls_secret, java_path)?;
             // Make json patch list
             let patches = make_patches(&pod)?;
             // Return admission response with patches
